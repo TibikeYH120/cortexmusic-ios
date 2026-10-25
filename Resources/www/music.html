@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cortex Music</title>
+<style>
+:root{--bg:#0B0F1A;--card:#141A2A;--line:#2A3348;--tx:#E5E7EB;--dim:#94A3B8;--acc:#8B5CF6;--acc2:#22D3EE;--ok:#6EE7B7}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 96px)}
+h1{font-size:22px;margin:0 0 2px;display:flex;align-items:center;gap:10px}
+h1 .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#8B5CF6,#22D3EE);display:flex;align-items:center;justify-content:center;font-size:15px}
+.sub{color:var(--dim);font-size:13px;margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}
+input,button{font-size:15px;border-radius:12px;border:1px solid var(--line);background:#0F1524;color:var(--tx);padding:12px 14px;width:100%;margin:5px 0}
+button{background:var(--acc);border-color:var(--acc);font-weight:600;cursor:pointer}
+button.sec{background:transparent;border-color:var(--line)}
+.row{display:flex;gap:8px}
+.row button{flex:1}
+#stage{width:100%;aspect-ratio:16/9;border:0;border-radius:14px;background:#000;display:none}
+#stage.on{display:block}
+audio{width:100%;margin:10px 0}
+#np{font-size:15px;font-weight:600;min-height:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#queue{list-style:none;padding:0;margin:8px 0 0}
+#queue li{display:flex;align-items:center;gap:10px;padding:11px 8px;border-bottom:1px solid var(--line);cursor:pointer}
+#queue li .t{flex:1;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#queue li .d{color:var(--dim);font-size:12px}
+#queue li.active .t{color:var(--acc2)}
+.badge{display:inline-block;font-size:11px;color:var(--acc2);border:1px solid #22d3ee33;background:#22d3ee18;border-radius:99px;padding:3px 10px;margin:2px 4px 2px 0}
+.hint{color:var(--dim);font-size:12px;line-height:1.5}
+#bar{position:fixed;left:0;right:0;bottom:0;background:#0F1524F2;backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:10px 16px calc(env(safe-area-inset-bottom) + 10px);display:flex;align-items:center;gap:10px}
+#bar .t{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#bar button{width:auto;margin:0;padding:9px 13px;border-radius:11px}
+</style>
+</head>
+<body>
+<h1><span class="logo">&#9835;</span> Cortex Music</h1>
+<p class="sub">YouTube Music, SoundCloud &#233;s helyi f&#225;jlok &#8212; egy helyen.</p>
+
+<div class="card">
+  <div id="np">Nincs lej&#225;tsz&#225;s</div>
+  <div class="hint">YouTube link beilleszt&#233;se ut&#225;n a lej&#225;tsz&#225;s a be&#233;p&#237;tett lej&#225;tsz&#243;ban megy (z&#225;rk&#233;perny&#337;s vez&#233;rl&#233;ssel).</div>
+  <div class="row" style="margin-top:10px">
+    <input id="url" placeholder="YouTube / SoundCloud link..." style="flex:1">
+  </div>
+  <div class="row">
+    <button onclick="addUrl()">Hozz&#225;ad&#225;s a sorhoz</button>
+    <button class="sec" onclick="document.getElementById('file').click()">Helyi f&#225;jl</button>
+  </div>
+  <input id="file" type="file" accept="audio/*,video/*" multiple style="display:none" onchange="addFiles(this.files)">
+</div>
+
+<iframe id="stage" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+<audio id="audio" controls></audio>
+
+<div class="card">
+  <b>V&#225;r&#243;lista</b>
+  <span class="badge">H&#225;tt&#233;r-lej&#225;tsz&#225;s</span><span class="badge">Z&#225;rk&#233;perny&#337;s vez&#233;rl&#233;s</span>
+  <ul id="queue"></ul>
+</div>
+
+<div id="bar">
+  <button onclick="CortexPlayer.prev()">&#9198;</button>
+  <button onclick="CortexPlayer.toggle()" id="pb">&#9654;</button>
+  <button onclick="CortexPlayer.next()">&#9197;</button>
+  <div class="t" id="bart">Cortex Music</div>
+</div>
+
+<script>
+const q = [];
+let idx = -1;
+const audio = document.getElementById('audio');
+const stage = document.getElementById('stage');
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+function native(type, extra) {
+  try { window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cortex.postMessage(Object.assign({ type }, extra || {})); } catch (e) {}
+}
+function ytId(u) {
+  const m = u.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{6,})/);
+  return m ? m[1] : null;
+}
+function scUrl(u) { return u.indexOf('soundcloud.com') >= 0; }
+
+function addUrl() {
+  const u = document.getElementById('url').value.trim();
+  if (!u) return;
+  const id = ytId(u);
+  q.push(id ? { kind: 'yt', id, title: 'YouTube — ' + id } : scUrl(u) ? { kind: 'sc', url: u, title: 'SoundCloud — zene' } : { kind: 'file', url: u, title: u });
+  document.getElementById('url').value = '';
+  render();
+  if (idx < 0) play(0);
+}
+function addFiles(files) {
+  [...files].forEach(f => q.push({ kind: 'file', url: URL.createObjectURL(f), title: f.name }));
+  render();
+  if (idx < 0) play(0);
+}
+function render() {
+  const ul = document.getElementById('queue');
+  ul.innerHTML = q.map((t, i) =>
+    `<li class="${i === idx ? 'active' : ''}" onclick="CortexPlayer.playIndex(${i})"><span class="t">${t.title}</span><span class="d">${t.kind.toUpperCase()}</span></li>`).join('');
+}
+function play(i) {
+  if (i < 0 || i >= q.length) return;
+  idx = i;
+  const t = q[i];
+  audio.pause(); audio.removeAttribute('src');
+  stage.classList.remove('on');
+  iframePaused = false;
+  if (t.kind === 'yt') {
+    stage.src = 'https://www.youtube-nocookie.com/embed/' + t.id + '?autoplay=1&playsinline=1&enablejsapi=1';
+    stage.classList.add('on');
+  } else if (t.kind === 'sc') {
+    stage.src = 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(t.url) + '&auto_play=true';
+    stage.classList.add('on');
+  } else {
+    audio.src = t.url;
+    const p = audio.play(); if (p && p.catch) p.catch(function(){});
+  }
+  document.getElementById('np').textContent = t.title;
+  document.getElementById('bart').textContent = t.title;
+  document.getElementById('pb').innerHTML = '&#10074;&#10074;';
+  native('nowPlaying', { title: t.title, artist: 'Cortex Music', playing: true });
+  render();
+}
+
+let iframePaused = false;
+function iframeCmd(func) {
+  try { stage.contentWindow.postMessage(JSON.stringify({ event: 'command', func: func, args: [] }), '*'); } catch (e) {}
+}
+
+window.CortexPlayer = {
+  play() {
+    if (idx < 0) return play(0);
+    const t = q[idx]; if (!t) return;
+    if (t.kind === 'file') { const p = audio.play(); if (p && p.catch) p.catch(function(){}); }
+    else { iframePaused = false; iframeCmd('playVideo'); }
+    document.getElementById('pb').innerHTML = '&#10074;&#10074;';
+    native('nowPlaying', { title: t.title, playing: true });
+  },
+  pause() {
+    const t = q[idx];
+    if (t && t.kind !== 'file') { iframePaused = true; iframeCmd('pauseVideo'); }
+    audio.pause();
+    document.getElementById('pb').innerHTML = '&#9654;';
+    native('nowPlaying', { title: t && t.title, playing: false });
+  },
+  toggle() {
+    if (!q.length) return;
+    if (idx < 0) return play(0);
+    const t = q[idx]; if (!t) return;
+    const playing = t.kind === 'file' ? !audio.paused : !iframePaused;
+    if (playing) this.pause(); else this.play();
+  },
+  next() { if (!q.length) return; play((idx + 1) % q.length); },
+  prev() { if (!q.length) return; play((idx - 1 + q.length) % q.length); },
+  seek(s) { if (q[idx] && q[idx].kind === 'file') { audio.currentTime = s; } native('position', { value: s }); },
+  playIndex(i) { play(i); }
+};
+
+audio.addEventListener('timeupdate', () => { native('position', { value: audio.currentTime }); native('duration', { value: audio.duration || 0 }); });
+audio.addEventListener('ended', () => CortexPlayer.next());
+audio.addEventListener('play', () => document.getElementById('pb').innerHTML = '&#10074;&#10074;');
+audio.addEventListener('pause', () => document.getElementById('pb').innerHTML = '&#9654;');
+if (isIOS) document.addEventListener('touchstart', () => { if (audio.src && audio.paused && idx >= 0 && q[idx].kind === 'file') audio.play(); }, { once: true });
+</script>
+</body>
+</html>
